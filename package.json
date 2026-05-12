@@ -1,0 +1,16 @@
+{
+  "name": "chrome-bridge-mcp",
+  "version": "1.0.0",
+  "description": "MCP server that bridges Claude Code to a Chrome extension via WebSocket",
+  "type": "module",
+  "scripts": {
+    "start": "node mcp-server/index.mjs",
+    "dev": "node --watch mcp-server/index.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
+  }
+}

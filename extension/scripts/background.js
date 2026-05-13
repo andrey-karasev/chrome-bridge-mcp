@@ -5,13 +5,31 @@
 
 const WS_URL = "ws://localhost:9229";
 const RECONNECT_DELAY = 3000;
+const KEEPALIVE_INTERVAL = 0.4; // minutes (24 seconds — under the 30s service worker timeout)
 
 let ws = null;
 let connected = false;
 
+// ─── Keep-Alive (prevents MV3 service worker termination) ───
+
+chrome.alarms.create("keepalive", { periodInMinutes: KEEPALIVE_INTERVAL });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "keepalive") {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping" }));
+    } else if (!connected) {
+      connect();
+    }
+  }
+});
+
 // ─── WebSocket Connection ────────────────────────────────────
 
 function connect() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
@@ -35,6 +53,7 @@ function connect() {
   ws.onmessage = async (event) => {
     try {
       const msg = JSON.parse(event.data);
+      if (msg.type === "pong") return;
       const { id, method, params } = msg;
       let result;
 
@@ -77,6 +96,8 @@ async function handleMethod(method, params) {
       return handleListTabs(params);
     case "switchTab":
       return handleSwitchTab(params);
+    case "newTab":
+      return handleNewTab(params);
     case "pressKey":
       return handlePressKey(params);
     case "waitFor":
@@ -265,21 +286,27 @@ async function handleScreenshot() {
 
 async function handleEvaluate({ code }) {
   const tab = await getActiveTab();
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: (js) => {
-      try {
-        const fn = new Function(js);
-        const res = fn();
-        return { success: true, result: res };
-      } catch (err) {
-        return { success: false, error: err.message };
-      }
-    },
-    args: [code],
-  });
+  const debugTarget = { tabId: tab.id };
 
-  return result.result;
+  await chrome.debugger.attach(debugTarget, "1.3");
+  try {
+    const { result, exceptionDetails } = await chrome.debugger.sendCommand(
+      debugTarget,
+      "Runtime.evaluate",
+      {
+        expression: `(function() { ${code} })()`,
+        returnByValue: true,
+        awaitPromise: true,
+      }
+    );
+
+    if (exceptionDetails) {
+      return { success: false, error: exceptionDetails.exception?.description || exceptionDetails.text };
+    }
+    return { success: true, result: result.value };
+  } finally {
+    await chrome.debugger.detach(debugTarget);
+  }
 }
 
 async function handleListTabs() {
@@ -298,6 +325,11 @@ async function handleSwitchTab({ tabId }) {
   const tab = await chrome.tabs.get(tabId);
   await chrome.windows.update(tab.windowId, { focused: true });
   return { success: true, tabId, title: tab.title, url: tab.url };
+}
+
+async function handleNewTab({ url }) {
+  const tab = await chrome.tabs.create({ url: url || "chrome://newtab", active: true });
+  return { success: true, tabId: tab.id, url: tab.pendingUrl || tab.url };
 }
 
 async function handlePressKey({ key, selector, modifiers }) {

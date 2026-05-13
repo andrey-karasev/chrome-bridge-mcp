@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "tabs",
-    "scripting"
+    "scripting",
+    "debugger",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

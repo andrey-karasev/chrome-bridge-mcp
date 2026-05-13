@@ -3,6 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { writeFileSync } from "node:fs";
 import { WebSocketServer } from "ws";
 
 const WS_PORT = parseInt(process.env.CHROME_BRIDGE_PORT || "9229", 10);
@@ -22,6 +23,10 @@ wss.on("connection", (ws) => {
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString());
+      if (msg.type === "ping") {
+        ws.send(JSON.stringify({ type: "pong" }));
+        return;
+      }
       const pending = pendingRequests.get(msg.id);
       if (pending) {
         pendingRequests.delete(msg.id);
@@ -139,9 +144,15 @@ server.tool(
 server.tool(
   "browser_screenshot",
   "Take a screenshot of the visible area of the active tab",
-  {},
-  async () => {
+  {
+    savePath: z.string().optional().describe("Optional file path to save the screenshot PNG to disk"),
+  },
+  async ({ savePath }) => {
     const result = await sendToExtension("screenshot", {});
+    if (savePath) {
+      writeFileSync(savePath, Buffer.from(result.data, "base64"));
+      return { content: [{ type: "text", text: `Screenshot saved to ${savePath}` }, { type: "image", data: result.data, mimeType: "image/png" }] };
+    }
     return { content: [{ type: "image", data: result.data, mimeType: "image/png" }] };
   }
 );
@@ -176,6 +187,18 @@ server.tool(
   },
   async ({ tabId }) => {
     const result = await sendToExtension("switchTab", { tabId });
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+
+server.tool(
+  "browser_new_tab",
+  "Open a new browser tab with an optional URL",
+  {
+    url: z.string().optional().describe("The URL to open (default: new tab page)"),
+  },
+  async ({ url }) => {
+    const result = await sendToExtension("newTab", { url });
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 );

@@ -131,15 +131,17 @@ ChatGPT Desktop supports MCP servers via its settings. To configure:
 **Example usage in ChatGPT:**
 
 ```
-You: Open my Jira board and summarize the current sprint
-ChatGPT: [navigates to your Jira board using your existing session]
+You: Open my Google Calendar and tell me what's on my schedule today
+ChatGPT: [navigates to Google Calendar using your existing session]
           [reads the page content]
-          Here's your current sprint summary:
-          - 5 In Progress, 3 In Review, 12 Done...
+          Here's your schedule for today:
+          - 10:00 AM — Team standup
+          - 2:00 PM — Design review
+          - 4:30 PM — 1:1 with manager
 
-You: Fill in the "Description" field on this Jira ticket with a summary
-ChatGPT: [uses browser_type to fill the field]
-          Done — I've added the description.
+You: Open a new tab and search for "MCP protocol specification"
+ChatGPT: [opens a new tab, navigates to Google, types the query]
+          Here are the top results: ...
 ```
 
 ### Other MCP Clients

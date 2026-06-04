@@ -6,9 +6,11 @@
 const WS_URL = "ws://localhost:9229";
 const RECONNECT_DELAY = 3000;
 const KEEPALIVE_INTERVAL = 0.4; // minutes (24 seconds — under the 30s service worker timeout)
+const MESSAGE_ACTIVITY_BADGE_MS = 500;
 
 let ws = null;
 let connected = false;
+let messageBadgeResetTimer = null;
 
 // ─── Keep-Alive (prevents MV3 service worker termination) ───
 
@@ -40,6 +42,10 @@ function connect() {
 
   ws.onclose = () => {
     connected = false;
+    if (messageBadgeResetTimer) {
+      clearTimeout(messageBadgeResetTimer);
+      messageBadgeResetTimer = null;
+    }
     console.log("[chrome-bridge] Disconnected, reconnecting...");
     updateBadge("OFF", "#F44336");
     setTimeout(connect, RECONNECT_DELAY);
@@ -54,6 +60,7 @@ function connect() {
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "pong") return;
+      flashMessageActivityBadge();
       const { id, method, params } = msg;
       let result;
 
@@ -72,6 +79,21 @@ function connect() {
 function updateBadge(text, color) {
   chrome.action.setBadgeText({ text });
   chrome.action.setBadgeBackgroundColor({ color });
+}
+
+function flashMessageActivityBadge() {
+  updateBadge("ON", "#2196F3");
+
+  if (messageBadgeResetTimer) {
+    clearTimeout(messageBadgeResetTimer);
+  }
+
+  messageBadgeResetTimer = setTimeout(() => {
+    messageBadgeResetTimer = null;
+    if (connected && ws && ws.readyState === WebSocket.OPEN) {
+      updateBadge("ON", "#4CAF50");
+    }
+  }, MESSAGE_ACTIVITY_BADGE_MS);
 }
 
 // ─── Method Handlers ─────────────────────────────────────────

@@ -29,13 +29,13 @@ Existing browser automation (Playwright, Puppeteer, Selenium) launches isolated 
 
 ## Installation
 
-### 1. Clone and install dependencies
+### 1. Install the MCP server
 
 ```bash
-git clone https://github.com/andrey-karasev/chrome-bridge-mcp.git
-cd chrome-bridge-mcp
-npm install
+npx -y @web4w3/install chrome-bridge
 ```
+
+No cloning or build step needed. The package is pre-compiled and available on npm as [`@web4w3/install`](https://www.npmjs.com/package/@web4w3/install).
 
 ### 2. Load the Chrome extension
 
@@ -48,7 +48,7 @@ npm install
 ### 3. Start the MCP server
 
 ```bash
-npm start
+npx @web4w3/install chrome-bridge
 ```
 
 The server starts a WebSocket listener on `localhost:9229`. Once the extension connects, the badge turns green ("ON").
@@ -56,7 +56,7 @@ The server starts a WebSocket listener on `localhost:9229`. Once the extension c
 You can customize the port via environment variable:
 
 ```bash
-CHROME_BRIDGE_PORT=8888 npm start
+CHROME_BRIDGE_PORT=8888 npx @web4w3/install chrome-bridge
 ```
 
 ## Configuration for AI Clients
@@ -69,8 +69,8 @@ Add to your project `.claude/settings.json` or global `~/.claude/settings.json`:
 {
   "mcpServers": {
     "chrome-bridge": {
-      "command": "node",
-      "args": ["/absolute/path/to/chrome-bridge-mcp/mcp-server/index.mjs"],
+      "command": "npx",
+      "args": ["-y", "@web4w3/install", "chrome-bridge"],
       "env": {
         "CHROME_BRIDGE_PORT": "9229"
       }
@@ -107,8 +107,8 @@ Add to your Claude Desktop MCP configuration file:
 {
   "mcpServers": {
     "chrome-bridge": {
-      "command": "node",
-      "args": ["/absolute/path/to/chrome-bridge-mcp/mcp-server/index.mjs"],
+      "command": "npx",
+      "args": ["-y", "@web4w3/install", "chrome-bridge"],
       "env": {
         "CHROME_BRIDGE_PORT": "9229"
       }
@@ -125,8 +125,8 @@ ChatGPT Desktop supports MCP servers via its settings. To configure:
 2. Go to **Settings** → **MCP Servers** → **Add Server**
 3. Configure:
    - **Name:** `chrome-bridge`
-   - **Command:** `node`
-   - **Arguments:** `/absolute/path/to/chrome-bridge-mcp/mcp-server/index.mjs`
+   - **Command:** `npx`
+   - **Arguments:** `-y @web4w3/install chrome-bridge`
 
 **Example usage in ChatGPT:**
 
@@ -149,7 +149,7 @@ ChatGPT: [opens a new tab, navigates to Google, types the query]
 Any MCP-compatible client can use Chrome Bridge. The server communicates over **stdio** using the standard MCP protocol. Configure your client to run:
 
 ```bash
-node /absolute/path/to/chrome-bridge-mcp/mcp-server/index.mjs
+npx @web4w3/install chrome-bridge
 ```
 
 Set the environment variable `CHROME_BRIDGE_PORT` if you need a custom WebSocket port (default: `9229`).

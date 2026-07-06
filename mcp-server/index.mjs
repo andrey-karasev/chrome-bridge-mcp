@@ -301,6 +301,18 @@ server.tool(
 );
 
 server.tool(
+  "browser_close_tab",
+  "Close a browser tab by its ID (default: the active tab)",
+  {
+    tabId: z.number().optional().describe("The tab ID to close (from browser_list_tabs); default: active tab"),
+  },
+  async ({ tabId }) => {
+    const result = await sendToExtension("closeTab", { tabId });
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+
+server.tool(
   "browser_press_key",
   "Dispatch a keyboard event on the active element or a specific selector",
   {

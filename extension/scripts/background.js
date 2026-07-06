@@ -120,6 +120,8 @@ async function handleMethod(method, params) {
       return handleSwitchTab(params);
     case "newTab":
       return handleNewTab(params);
+    case "closeTab":
+      return handleCloseTab(params);
     case "pressKey":
       return handlePressKey(params);
     case "waitFor":
@@ -400,6 +402,13 @@ async function handleSwitchTab({ tabId }) {
 async function handleNewTab({ url }) {
   const tab = await chrome.tabs.create({ url: url || "chrome://newtab", active: true });
   return { success: true, tabId: tab.id, url: tab.pendingUrl || tab.url };
+}
+
+async function handleCloseTab({ tabId }) {
+  const id = tabId ?? (await getActiveTab()).id;
+  const tab = await chrome.tabs.get(id);
+  await chrome.tabs.remove(id);
+  return { success: true, tabId: id, title: tab.title, url: tab.url };
 }
 
 async function handlePressKey({ key, selector, modifiers }) {

@@ -37,7 +37,7 @@ function connect() {
   ws.onopen = () => {
     connected = true;
     console.log("[chrome-bridge] Connected to MCP server");
-    updateBadge("●", "#4CAF50");
+    updateBadge(" ", "#4CAF50");
   };
 
   ws.onclose = () => {
@@ -47,7 +47,7 @@ function connect() {
       messageBadgeResetTimer = null;
     }
     console.log("[chrome-bridge] Disconnected, reconnecting...");
-    updateBadge("○", "#F44336");
+    updateBadge(" ", "#F44336");
     setTimeout(connect, RECONNECT_DELAY);
   };
 
@@ -82,7 +82,7 @@ function updateBadge(text, color) {
 }
 
 function flashMessageActivityBadge() {
-  updateBadge("●", "#2196F3");
+  updateBadge(" ", "#2196F3");
 
   if (messageBadgeResetTimer) {
     clearTimeout(messageBadgeResetTimer);
@@ -91,7 +91,7 @@ function flashMessageActivityBadge() {
   messageBadgeResetTimer = setTimeout(() => {
     messageBadgeResetTimer = null;
     if (connected && ws && ws.readyState === WebSocket.OPEN) {
-      updateBadge("ON", "#4CAF50");
+      updateBadge(" ", "#4CAF50");
     }
   }, MESSAGE_ACTIVITY_BADGE_MS);
 }
@@ -479,4 +479,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ─── Init ────────────────────────────────────────────────────
 
 connect();
-updateBadge("...", "#FF9800");
+updateBadge(" ", "#FF9800");

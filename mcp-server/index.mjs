@@ -229,12 +229,39 @@ server.tool(
 
 server.tool(
   "browser_evaluate",
-  "Execute JavaScript in the context of the active tab's page",
+  "Execute JavaScript in the context of the active tab's page. Supports `return` and `await`.",
   {
-    code: z.string().describe("JavaScript code to execute. Use `return` for a value."),
+    code: z.string().describe("JavaScript code to execute. Use `return` for a value. `await` is supported."),
+    timeoutMs: z.number().optional().describe("Timeout in milliseconds (default 25000). The call always resolves within this window."),
   },
-  async ({ code }) => {
-    const result = await sendToExtension("evaluate", { code });
+  async ({ code, timeoutMs }) => {
+    const ms = timeoutMs ?? 25000;
+    const result = await sendToExtension("evaluate", { code, timeoutMs: ms }, ms + 5000);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+
+server.tool(
+  "browser_set_file_input",
+  "Set files on a file input element using Chrome DevTools Protocol (bypasses the OS file picker)",
+  {
+    files: z.array(z.string()).describe("Absolute file paths to set on the input element"),
+    selector: z.string().optional().describe("CSS selector for the file input (default: input[type='file'])"),
+  },
+  async ({ files, selector }) => {
+    const result = await sendToExtension("setFileInputFiles", { files, selector });
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+
+server.tool(
+  "browser_force_detach_debugger",
+  "Force-detach any Chrome DevTools Protocol debugger session from the active tab. Use this to recover from a stuck debugger.",
+  {
+    tabId: z.number().optional().describe("Tab ID to detach from (default: active tab)"),
+  },
+  async ({ tabId }) => {
+    const result = await sendToExtension("forceDetach", { tabId });
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 );

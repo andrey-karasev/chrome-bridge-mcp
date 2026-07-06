@@ -6,9 +6,11 @@
 const WS_URL = "ws://localhost:9229";
 const RECONNECT_DELAY = 3000;
 const KEEPALIVE_INTERVAL = 0.4; // minutes (24 seconds — under the 30s service worker timeout)
+const MESSAGE_ACTIVITY_BADGE_MS = 500;
 
 let ws = null;
 let connected = false;
+let messageBadgeResetTimer = null;
 
 // ─── Keep-Alive (prevents MV3 service worker termination) ───
 
@@ -35,13 +37,17 @@ function connect() {
   ws.onopen = () => {
     connected = true;
     console.log("[chrome-bridge] Connected to MCP server");
-    updateBadge("ON", "#4CAF50");
+    updateBadge("●", "#4CAF50");
   };
 
   ws.onclose = () => {
     connected = false;
+    if (messageBadgeResetTimer) {
+      clearTimeout(messageBadgeResetTimer);
+      messageBadgeResetTimer = null;
+    }
     console.log("[chrome-bridge] Disconnected, reconnecting...");
-    updateBadge("OFF", "#F44336");
+    updateBadge("○", "#F44336");
     setTimeout(connect, RECONNECT_DELAY);
   };
 
@@ -54,6 +60,7 @@ function connect() {
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "pong") return;
+      flashMessageActivityBadge();
       const { id, method, params } = msg;
       let result;
 
@@ -72,6 +79,21 @@ function connect() {
 function updateBadge(text, color) {
   chrome.action.setBadgeText({ text });
   chrome.action.setBadgeBackgroundColor({ color });
+}
+
+function flashMessageActivityBadge() {
+  updateBadge("●", "#2196F3");
+
+  if (messageBadgeResetTimer) {
+    clearTimeout(messageBadgeResetTimer);
+  }
+
+  messageBadgeResetTimer = setTimeout(() => {
+    messageBadgeResetTimer = null;
+    if (connected && ws && ws.readyState === WebSocket.OPEN) {
+      updateBadge("ON", "#4CAF50");
+    }
+  }, MESSAGE_ACTIVITY_BADGE_MS);
 }
 
 // ─── Method Handlers ─────────────────────────────────────────
@@ -102,6 +124,10 @@ async function handleMethod(method, params) {
       return handlePressKey(params);
     case "waitFor":
       return handleWaitFor(params);
+    case "setFileInputFiles":
+      return handleSetFileInputFiles(params);
+    case "forceDetach":
+      return handleForceDetach(params);
     default:
       throw new Error(`Unknown method: ${method}`);
   }
@@ -284,28 +310,72 @@ async function handleScreenshot() {
   return { data: base64 };
 }
 
-async function handleEvaluate({ code }) {
+async function handleEvaluate({ code, timeoutMs = 25000 }) {
+  const tab = await getActiveTab();
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: (codeStr, ms) => {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error(`evaluate timed out after ${ms}ms`)),
+            ms
+          );
+          try {
+            // AsyncFunction supports both synchronous `return` and `await`
+            const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+            AsyncFn(codeStr)().then(
+              (v) => { clearTimeout(timer); resolve(v); },
+              (e) => { clearTimeout(timer); reject(e instanceof Error ? e.message : String(e)); }
+            );
+          } catch (e) {
+            clearTimeout(timer);
+            reject(e instanceof Error ? e.message : String(e));
+          }
+        });
+      },
+      args: [code, timeoutMs],
+    });
+    return { success: true, result };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleSetFileInputFiles({ selector, files }) {
   const tab = await getActiveTab();
   const debugTarget = { tabId: tab.id };
 
+  // Force-detach any stale session before attaching
+  try { await chrome.debugger.detach(debugTarget); } catch (_) {}
+
   await chrome.debugger.attach(debugTarget, "1.3");
   try {
-    const { result, exceptionDetails } = await chrome.debugger.sendCommand(
-      debugTarget,
-      "Runtime.evaluate",
-      {
-        expression: `(function() { ${code} })()`,
-        returnByValue: true,
-        awaitPromise: true,
-      }
-    );
-
-    if (exceptionDetails) {
-      return { success: false, error: exceptionDetails.exception?.description || exceptionDetails.text };
-    }
-    return { success: true, result: result.value };
+    const { root } = await chrome.debugger.sendCommand(debugTarget, "DOM.getDocument", {});
+    const { nodeId } = await chrome.debugger.sendCommand(debugTarget, "DOM.querySelector", {
+      nodeId: root.nodeId,
+      selector: selector || "input[type='file']",
+    });
+    if (!nodeId) throw new Error(`No element found for selector: ${selector}`);
+    await chrome.debugger.sendCommand(debugTarget, "DOM.setFileInputFiles", {
+      files: files,
+      nodeId: nodeId,
+    });
+    return { success: true };
   } finally {
+    try { await chrome.debugger.detach(debugTarget); } catch (_) {}
+  }
+}
+
+async function handleForceDetach({ tabId } = {}) {
+  const tab = tabId ? await chrome.tabs.get(tabId) : await getActiveTab();
+  const debugTarget = { tabId: tab.id };
+  try {
     await chrome.debugger.detach(debugTarget);
+    return { success: true, tabId: tab.id };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 }
 

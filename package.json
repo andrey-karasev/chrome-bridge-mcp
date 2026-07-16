@@ -10,7 +10,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "@nut-tree-fork/nut-js": "^4.2.6",
     "ws": "^8.18.0",
     "zod": "^4.4.3"
   }

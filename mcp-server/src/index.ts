@@ -4,93 +4,45 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
-import { platform } from "node:os";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 
 const WS_PORT = parseInt(process.env.CHROME_BRIDGE_PORT || "9229", 10);
 
-// ─── Display Enumeration ─────────────────────────────────────
-
-let _displayCache = null;
-let _displayCacheTime = 0;
-const DISPLAY_CACHE_TTL = 2000;
-
-function getDisplaysSync() {
-  const now = Date.now();
-  if (_displayCache && now - _displayCacheTime < DISPLAY_CACHE_TTL) return _displayCache;
-
-  const p = platform();
-  let displays;
-
-  if (p === "darwin") {
-    const swiftScript = [
-      "import CoreGraphics",
-      "import Foundation",
-      "var ids = [CGDirectDisplayID](repeating: 0, count: 16)",
-      "var count: UInt32 = 0",
-      "CGGetActiveDisplayList(16, &ids, &count)",
-      "for i in 0..<Int(count) {",
-      "  let id = ids[i]",
-      "  let b = CGDisplayBounds(id)",
-      '  print("\\(id),\\(Int(b.origin.x)),\\(Int(b.origin.y)),\\(Int(b.size.width)),\\(Int(b.size.height)),\\(CGDisplayIsMain(id) != 0 ? 1 : 0)")',
-      "}",
-    ].join("\n");
-    const out = execSync("swift -", { input: swiftScript, encoding: "utf8", timeout: 10000 });
-    displays = out.trim().split("\n").filter(Boolean).map((line, index) => {
-      const [id, x, y, width, height, primary] = line.split(",").map(Number);
-      return { index, id, x, y, width, height, primary: primary === 1 };
-    });
-  } else if (p === "linux") {
-    const out = execSync("xrandr --query", { encoding: "utf8", timeout: 5000 });
-    displays = [];
-    let index = 0;
-    for (const line of out.split("\n")) {
-      const m = line.match(/^(\S+) connected(?: primary)? (\d+)x(\d+)\+(\d+)\+(\d+)/);
-      if (m) {
-        displays.push({
-          index: index++, name: m[1],
-          x: parseInt(m[4]), y: parseInt(m[5]),
-          width: parseInt(m[2]), height: parseInt(m[3]),
-          primary: line.includes(" primary "),
-        });
-      }
-    }
-  } else if (p === "win32") {
-    const ps = `Add-Type -AssemblyName System.Windows.Forms; $i=0; [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { Write-Output "$i,$($_.Bounds.X),$($_.Bounds.Y),$($_.Bounds.Width),$($_.Bounds.Height),$($_.Primary)"; $i++ }`;
-    const out = execSync(`powershell -NoProfile -Command "${ps}"`, { encoding: "utf8", timeout: 5000 });
-    displays = out.trim().split("\n").filter(Boolean).map(line => {
-      const [index, x, y, width, height, primary] = line.split(",");
-      return { index: parseInt(index), x: parseInt(x), y: parseInt(y), width: parseInt(width), height: parseInt(height), primary: primary.trim() === "True" };
-    });
-  } else {
-    displays = [];
-  }
-
-  _displayCache = displays;
-  _displayCacheTime = now;
-  return displays;
-}
+type PendingRequest = {
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+};
 
 // ─── WebSocket Bridge ────────────────────────────────────────
 
-let chromeSocket = null;
-let pendingRequests = new Map();
+let chromeSocket: WebSocket | null = null;
+const pendingRequests = new Map<number, PendingRequest>();
 let requestId = 0;
 
 const wss = new WebSocketServer({ port: WS_PORT });
 
-wss.on("connection", (ws) => {
-  process.stderr.write(`[chrome-bridge] Extension connected\n`);
+wss.on("connection", (ws: WebSocket) => {
+  process.stderr.write("[chrome-bridge] Extension connected\n");
   chromeSocket = ws;
 
-  ws.on("message", (data) => {
+  ws.on("message", (data: Buffer) => {
     try {
-      const msg = JSON.parse(data.toString());
+      const msg = JSON.parse(data.toString()) as {
+        id?: number;
+        type?: string;
+        error?: string;
+        result?: unknown;
+      };
+
       if (msg.type === "ping") {
         ws.send(JSON.stringify({ type: "pong" }));
         return;
       }
+
+      if (typeof msg.id !== "number") {
+        return;
+      }
+
       const pending = pendingRequests.get(msg.id);
       if (pending) {
         pendingRequests.delete(msg.id);
@@ -101,24 +53,26 @@ wss.on("connection", (ws) => {
         }
       }
     } catch (err) {
-      process.stderr.write(`[chrome-bridge] Parse error: ${err.message}\n`);
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[chrome-bridge] Parse error: ${message}\n`);
     }
   });
 
   ws.on("close", () => {
-    process.stderr.write(`[chrome-bridge] Extension disconnected\n`);
+    process.stderr.write("[chrome-bridge] Extension disconnected\n");
     chromeSocket = null;
-    for (const [id, pending] of pendingRequests) {
+    for (const [, pending] of pendingRequests) {
       pending.reject(new Error("Extension disconnected"));
     }
     pendingRequests.clear();
   });
 });
 
-function sendToExtension(method, params = {}, timeoutMs = 30000) {
+function sendToExtension(method: string, params: Record<string, unknown> = {}, timeoutMs = 30000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (!chromeSocket || chromeSocket.readyState !== 1) {
-      return reject(new Error("Chrome extension not connected. Make sure the extension is installed and active."));
+      reject(new Error("Chrome extension not connected. Make sure the extension is installed and active."));
+      return;
     }
 
     const id = ++requestId;
@@ -128,8 +82,14 @@ function sendToExtension(method, params = {}, timeoutMs = 30000) {
     }, timeoutMs);
 
     pendingRequests.set(id, {
-      resolve: (result) => { clearTimeout(timer); resolve(result); },
-      reject: (err) => { clearTimeout(timer); reject(err); },
+      resolve: (result: unknown) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      reject: (err: Error) => {
+        clearTimeout(timer);
+        reject(err);
+      },
     });
 
     chromeSocket.send(JSON.stringify({ id, method, params }));
@@ -161,7 +121,7 @@ server.tool(
   },
   async ({ maxLength }) => {
     const result = await sendToExtension("readPage", { maxLength: maxLength || 50000 });
-    return { content: [{ type: "text", text: result }] };
+    return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };
   }
 );
 
@@ -212,10 +172,19 @@ server.tool(
     savePath: z.string().optional().describe("Optional file path to save the screenshot PNG to disk"),
   },
   async ({ savePath }) => {
-    const result = await sendToExtension("screenshot", {});
+    const result = (await sendToExtension("screenshot", {})) as { data?: string };
+    if (!result.data) {
+      throw new Error("Screenshot response missing image data");
+    }
+
     if (savePath) {
       writeFileSync(savePath, Buffer.from(result.data, "base64"));
-      return { content: [{ type: "text", text: `Screenshot saved to ${savePath}` }, { type: "image", data: result.data, mimeType: "image/png" }] };
+      return {
+        content: [
+          { type: "text", text: `Screenshot saved to ${savePath}` },
+          { type: "image", data: result.data, mimeType: "image/png" },
+        ],
+      };
     }
     return { content: [{ type: "image", data: result.data, mimeType: "image/png" }] };
   }
@@ -312,12 +281,15 @@ server.tool(
   {
     key: z.string().describe("Key to press (e.g., 'Enter', 'Tab', 'Escape', 'a')"),
     selector: z.string().optional().describe("CSS selector to target (default: document.activeElement)"),
-    modifiers: z.object({
-      ctrl: z.boolean().optional(),
-      shift: z.boolean().optional(),
-      alt: z.boolean().optional(),
-      meta: z.boolean().optional(),
-    }).optional().describe("Modifier keys to hold"),
+    modifiers: z
+      .object({
+        ctrl: z.boolean().optional(),
+        shift: z.boolean().optional(),
+        alt: z.boolean().optional(),
+        meta: z.boolean().optional(),
+      })
+      .optional()
+      .describe("Modifier keys to hold"),
   },
   async ({ key, selector, modifiers }) => {
     const result = await sendToExtension("pressKey", { key, selector, modifiers });

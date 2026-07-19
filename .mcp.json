@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "chrome-bridge": {
-      "command": "node",
-      "args": ["mcp-server/index.mjs"],
+      "command": "npm",
+      "args": ["start"],
       "cwd": "."
     }
   }

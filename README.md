@@ -37,18 +37,23 @@ npx -y @web4w3/install chrome-bridge
 
 No cloning or build step needed. The package is pre-compiled and available on npm as [`@web4w3/install`](https://www.npmjs.com/package/@web4w3/install).
 
-### 2. Load the Chrome extension
+### 2. Build and load the Chrome extension
+
+```bash
+npm install
+npm run build:extension
+```
 
 1. Open Chrome and navigate to `chrome://extensions`
 2. Enable **Developer mode** (toggle in the top-right corner)
 3. Click **"Load unpacked"**
-4. Select the `extension/` folder from this repository
+4. Select the `extension/dist/` folder from this repository
 5. The extension icon should appear in your toolbar with an orange "..." badge
 
 ### 3. Start the MCP server
 
 ```bash
-npx @web4w3/install chrome-bridge
+npm start
 ```
 
 The server starts a WebSocket listener on `localhost:9229`. Once the extension connects, the badge turns green ("✅").
@@ -154,6 +159,22 @@ npx @web4w3/install chrome-bridge
 
 Set the environment variable `CHROME_BRIDGE_PORT` if you need a custom WebSocket port (default: `9229`).
 
+Example generic MCP config:
+
+```json
+{
+  "mcpServers": {
+    "chrome-bridge": {
+      "command": "npx",
+      "args": ["-y", "@web4w3/install", "chrome-bridge"],
+      "env": {
+        "CHROME_BRIDGE_PORT": "9229"
+      }
+    }
+  }
+}
+```
+
 ## Available Tools
 
 | Tool | Description |
@@ -226,7 +247,19 @@ AI calls: browser_screenshot({ savePath: "/tmp/current-page.png" })
 ## Development
 
 ```bash
-# Start in watch mode (auto-restart on changes)
+# Install workspace dependencies
+npm install
+
+# Build all workspace packages
+npm run build
+
+# Build only MCP server
+npm run build:mcp
+
+# Build only extension bundle
+npm run build:extension
+
+# Start MCP server in TypeScript watch mode
 npm run dev
 
 # The extension auto-reconnects when the server restarts

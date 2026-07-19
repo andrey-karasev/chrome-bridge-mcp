@@ -51,7 +51,7 @@ No cloning or build step needed. The package is pre-compiled and available on np
 npx @web4w3/install chrome-bridge
 ```
 
-The server starts a WebSocket listener on `localhost:9229`. Once the extension connects, the badge turns green ("ON").
+The server starts a WebSocket listener on `localhost:9229`. Once the extension connects, the badge turns green ("✅").
 
 You can customize the port via environment variable:
 
